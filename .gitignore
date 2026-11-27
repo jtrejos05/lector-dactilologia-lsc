@@ -22,3 +22,9 @@ modelo/*.joblib
 
 # calibracion propia de cada camara
 datos/calibracion.json
+
+# temporales de Office (documentos abiertos)
+~$*
+
+# configuracion del IDE
+.idea/
