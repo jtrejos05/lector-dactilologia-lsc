@@ -1,0 +1,21 @@
+# Entorno virtual: se reconstruye con requirements.txt
+.venv/
+__pycache__/
+*.pyc
+
+# FOTOGRAMAS DE LA CAMARA - NO SUBIR
+# Son imagenes de la cara del autor grabadas en su casa. El proyecto no las
+# necesita: datos/muestras.csv ya contiene las caracteristicas extraidas.
+# Se conservan solo en local, como respaldo para recalcular caracteristicas.
+datos/imagenes/
+
+# Salidas generadas (una de ellas contiene fotogramas de la camara)
+salidas/
+
+# Artefactos que se regeneran
+# (los comentarios deben ir en su propia linea: git no admite
+#  comentarios al final de un patron)
+# lo baja descargar_modelo.py
+modelo/*.task
+# lo genera entrenar.py
+modelo/*.joblib
