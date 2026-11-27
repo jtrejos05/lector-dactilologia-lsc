@@ -28,3 +28,7 @@ datos/calibracion.json
 
 # configuracion del IDE
 .idea/
+
+# Entregables que no van al repositorio publico
+*.docx
+*.pptx
