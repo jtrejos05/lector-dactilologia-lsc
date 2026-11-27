@@ -1,218 +1,281 @@
-# Intérprete de lenguaje de señas
+# Lector de dactilología — Lengua de Señas Colombiana (LSC)
 
-Proyecto de visión artificial que lee el alfabeto dactilológico por webcam y lo
-convierte en texto. Reconoce las **24 letras de pose estática** del alfabeto,
-más una seña de separación de palabras.
+**Autor:** Juan Trejos ([@jtrejos05](https://github.com/jtrejos05))
+**Asignatura:** Visión Artificial / Procesamiento de Imágenes
+**Entrega:** proyecto final
 
----
+Sistema de visión por computador que reconoce en tiempo real las letras del
+alfabeto dactilológico de la LSC desde una webcam y las convierte en texto.
 
-## Cómo funciona
+El proyecto implementa **dos tuberías independientes** que resuelven la misma
+tarea y se comparan entre sí:
 
-```
-webcam ──▶ MediaPipe ──▶ normalización ──▶ MLP ──▶ estabilizador ──▶ texto
-           21 puntos      78 rasgos        letra    3 capas anti-ruido
-```
+1. **Tubería clásica** — filtrado, histogramas, umbralización, morfología,
+   segmentación y caracterización, sin redes neuronales.
+2. **Tubería moderna** — detección de 21 puntos de la mano con MediaPipe y
+   clasificación con un perceptrón multicapa.
 
-Las dos etapas que hacen el trabajo de verdad son la segunda y la cuarta.
-
-### 1. Detección — `senas/manos.py`
-
-MediaPipe localiza la mano y devuelve **21 puntos 3D** (muñeca, nudillos,
-falanges, puntas). Esto sustituye a la segmentación por color de piel de los
-enfoques clásicos, que se rompe con cualquier cambio de luz o con un fondo del
-color de la mano.
-
-> **Ojo con la versión.** Desde MediaPipe 1.0 el API antiguo `mp.solutions.hands`
-> **ya no existe**. Todo tutorial que encuentres con `mp.solutions` es para
-> 0.10.x y no funciona aquí. Este proyecto usa el API nuevo, `mediapipe.tasks`.
-
-### 2. Normalización — el paso que decide si el proyecto funciona
-
-Los 21 puntos crudos dependen de dónde está la mano y de cuán cerca esté de la
-cámara. Si los metes tal cual en el clasificador, el modelo aprende *"la mano
-estaba arriba a la izquierda"* en vez de *"los dedos estaban así"*, y falla en
-cuanto te mueves. `extraer_caracteristicas()` hace cuatro cosas:
-
-| Paso | Qué corrige |
-|---|---|
-| `x *= ancho/alto` | MediaPipe normaliza x e y por separado; en 16:9 eso **estira la mano**. Sin esto, la misma seña da vectores distintos en cámaras con formatos distintos. |
-| reflejar eje X si es mano izquierda | Zurdos y diestros comparten un solo modelo. Si no, habría que grabar el dataset dos veces. |
-| restar la muñeca | Invariancia a la **posición** en el encuadre. |
-| dividir por \|muñeca→nudillo medio\| | Invariancia a la **escala** (distancia a la cámara). Se usa ese segmento porque es rígido: no se encoge al cerrar el puño, cosa que sí le pasa a la caja contenedora. |
-
-Salen **63 coordenadas + 15 distancias** entre puntas de dedos = vector de 78.
-Las distancias son redundantes en teoría, pero le dan al clasificador la
-relación *"dedos juntos vs separados"* ya masticada, que es justo lo que separa
-los pares difíciles (U/V, M/N).
-
-Estas invariancias no son una promesa: están comprobadas numéricamente en
-`probar_caracteristicas.py`.
-
-### 3. Clasificación — `entrenar.py`
-
-`StandardScaler` + `MLPClassifier(128, 64)`. La red es pequeña a propósito: con
-unos miles de muestras, una más grande se aprende el ruido de tu webcam.
-
-### 4. Estabilización — `interpretar.py`
-
-Clasificar fotograma a fotograma da un resultado inservible: a 30 fps salen 30
-letras por segundo, y al mover la mano entre señas se pasa por poses que se
-parecen a otras letras. El resultado crudo es `AAAAWWWSSSSSSDDDD`. Tres capas:
-
-1. **Suavizado** — se promedian las probabilidades de los últimos 10 fotogramas.
-   Un fotograma malo suelto no cambia nada.
-2. **Histéresis** — una letra solo se escribe si aguanta 8 fotogramas seguidos
-   por encima del 70 % de confianza.
-3. **Rearme** — tras escribir una letra hay que *soltar* la seña para repetir
-   esa misma letra. Cambiar a otra letra distinta se acepta de inmediato. Sin
-   esta capa, tener la mano quieta escribiría la misma letra sin parar.
+La comparación entre ambas es el resultado central del trabajo.
 
 ---
 
-## Puesta en marcha
+## Precisión terminológica
 
-```bash
-.venv\Scripts\activate
-python descargar_modelo.py
-```
+Esto es un **lector de dactilología**, no un intérprete de lengua de señas.
 
-Baja `hand_landmarker.task` (~7,5 MB) del repositorio oficial de Google. Solo se
-hace una vez. Ese modelo **no** reconoce letras: solo localiza la mano. El que
-reconoce letras lo entrenas tú.
+La dactilología es el deletreo manual letra a letra, y es una parte real de la
+LSC: se usa para nombres propios, siglas y palabras sin seña propia. Pero
+**señar no es deletrear**. En LSC, «hola» tiene su propia seña —un gesto único
+con movimiento— y nadie la deletrea en una conversación.
 
-### Paso 1 — Grabar el dataset
-
-```bash
-python capturar.py
-```
-
-Pulsa la tecla de una letra, luego `G` para grabar una ráfaga (2 s de cuenta
-atrás + 60 fotogramas). No guarda imágenes, solo los vectores de 78 rasgos: el
-dataset pesa kilobytes.
-
-**Graba 3 o 4 ráfagas por letra, cambiando cada vez** distancia a la cámara,
-ángulo de la mano, altura y, si puedes, la luz. Si grabas las cuatro ráfagas
-quieto en la misma pose, vas a sacar 99 % en el entrenamiento y vas a fallar en
-la demo.
-
-No te saltes la clase `_NADA_` (tecla `0`): mano relajada, en reposo, poses que
-no son ninguna letra. Es la clase que evita que el intérprete escupa letras al
-azar mientras piensas.
-
-| Tecla | | Tecla | |
-|---|---|---|---|
-| `A`–`Z` | seleccionar letra | `G` | grabar ráfaga |
-| `ESPACIO` | seña de separador | `U` | deshacer última ráfaga |
-| `0` | clase «nada» | `D` | borrar todo de esa letra |
-| `TAB` | ver recuento | `Q` / `ESC` | guardar y salir |
-
-### Paso 2 — Entrenar
-
-```bash
-python entrenar.py
-```
-
-Deja el modelo en `modelo/` y la matriz de confusión en `salidas/`.
-
-> **Sobre el número de precisión que verás.** Los 60 fotogramas de una ráfaga
-> son casi el mismo fotograma repetido. Con un `train_test_split` normal caen
-> fotogramas gemelos en train y en test a la vez: el modelo se examina de lo que
-> ya vio, saca 99,8 % y se cae en la demo. Por eso aquí se parte **por ráfaga**
-> (`StratifiedGroupKFold`): ninguna toma se reparte entre train y test. El
-> número sale más bajo y es el real. **Espera algo entre 85 % y 95 %.**
-
-Al final imprime las confusiones más frecuentes. Ahí es donde conviene grabar
-más ráfagas — o aceptar que dos señas son casi idénticas de verdad.
-
-### Paso 3 — Interpretar
-
-```bash
-python interpretar.py
-```
-
-| Tecla | |
-|---|---|
-| `RETROCESO` | borrar el último carácter |
-| `C` | limpiar todo |
-| `S` | guardar la transcripción |
-| `D` | ver/ocultar el diagnóstico de probabilidades |
-| `Q` / `ESC` | salir |
-
-Para escribir una letra doble (`LL`, `RR`), baja la mano entre las dos.
+Reconocer señas de palabras completas exigiría modelar la dimensión temporal,
+que queda fuera del alcance de este trabajo.
 
 ---
 
-## Alcance y límites
+## Arquitectura
 
-Configurado para **LSC** (Lengua de Señas Colombiana). Para LSE o ASL no hay que
-tocar código: la lista de letras es prácticamente la misma y la forma de cada
-una la aprende el modelo de *tus* capturas.
+### Vista general
 
-**Quedan fuera las letras con movimiento**, y es una decisión, no un olvido: un
-clasificador estático mira una sola pose en un instante, así que no puede
-distinguir una trayectoria.
+```
+                      ┌──────────────┐
+   webcam ──────────► │  fotograma   │
+                      └──────┬───────┘
+                             │
+          ┌──────────────────┴──────────────────┐
+          │                                     │
+   TUBERÍA CLÁSICA                      TUBERÍA MODERNA
+   (senas/clasico.py)                   (senas/manos.py)
+          │                                     │
+   1. filtrado                          1. detector de palma
+      gaussiano / mediana / bilateral      (red convolucional)
+          │                                     │
+   2. histograma                        2. modelo de landmarks
+      ecualización / CLAHE                 21 puntos 3D
+          │                                     │
+   3. umbralización                     3. normalización
+      Otsu / adaptativo / inRange          traslación, escala,
+          │                                   lateralidad
+   4. morfología                              │
+      erosión, dilatación,                    │
+      apertura, cierre                        │
+          │                                   │
+   5. segmentación                            │
+      contornos, región mayor                 │
+          │                                   │
+   6. caracterización                   4. caracterización
+      14 descriptores                      78 características
+      (Hu, solidez, defectos)                 │
+          └──────────────────┬──────────────────┘
+                             │
+                      ┌──────▼───────┐
+                      │ clasificador │  MLP (scikit-learn)
+                      └──────┬───────┘
+                             │
+                      ┌──────▼───────┐
+                      │ estabilizador│  suavizado, histéresis, rearme
+                      └──────┬───────┘
+                             │
+                           texto
+```
 
-| | Movimiento |
+### Los temas del curso, y dónde están
+
+| Tema | Implementación | Archivo |
+|---|---|---|
+| **Modelos de cámara y calibración** | Modelo estenopeico, matriz intrínseca K, coeficientes de distorsión radial y tangencial, calibración con patrón de ajedrez, desdistorsión, mapa de desplazamiento | [`senas/calibracion.py`](senas/calibracion.py) |
+| **Filtros** | Gaussiano, mediana, bilateral y realce por convolución con núcleo explícito | [`senas/clasico.py`](senas/clasico.py) → `aplicar_filtro` |
+| **Histogramas** | Cálculo y dibujo del histograma, ecualización global y CLAHE | `clasico.py` → `histograma_gris`, `ecualizar` |
+| **Umbralización y binarización** | Manual, Otsu, adaptativo por media y por gaussiana, `inRange` en YCrCb | `clasico.py` → `binarizar`, `mascara_piel` |
+| **Morfología matemática** | Erosión, dilatación, apertura, cierre y gradiente, con elemento estructurante configurable en forma y tamaño | `clasico.py` → `morfologia`, `nucleo` |
+| **Segmentación** | Segmentación por color de piel en YCrCb, extracción de contornos, selección de región mayor, región de interés | `clasico.py` → `mascara_piel`, `region_mayor` |
+| **Caracterización** | 14 descriptores clásicos (momentos de Hu, solidez, circularidad, extensión, defectos de convexidad) y 78 características sobre landmarks | `clasico.py` → `caracterizar`; `manos.py` → `caracteristicas` |
+
+### Por qué YCrCb y no BGR
+
+La segmentación de piel trabaja en YCrCb porque ese espacio **separa la
+crominancia de la luminancia**. El rango de piel se mantiene estable cuando
+cambia la iluminación, cosa que no ocurre en BGR: la misma piel bajo otra luz
+cae en otra zona del cubo de color y el rango deja de servir.
+
+### Por qué las características son invariantes
+
+Ambos vectores están normalizados para no depender de dónde está la mano en el
+encuadre ni de la distancia a la cámara. Sin esa normalización el modelo
+aprende la posición de la mano en lugar de la forma de la seña.
+
+Las invariancias del vector de MediaPipe están **demostradas con pruebas**
+ejecutables: ver [`probar_caracteristicas.py`](probar_caracteristicas.py).
+
+---
+
+## Ramificación
+
+Modelo de ramas por funcionalidad, integrando a `main` mediante *merge* sin
+avance rápido (`--no-ff`) para que cada funcionalidad quede identificable en el
+historial.
+
+```
+main ──────●────────●────────●────────●────────●──────►
+            \      / \      / \      / \      /
+             ●────●   ●────●   ●────●   ●────●
+        feature/   feature/  feature/  feature/
+        vision-    calibra-  ui-       dataset-
+        clasica    cion      taller    herramientas
+```
+
+| Rama | Contenido |
 |---|---|
-| `J` | gancho hacia abajo con el meñique |
-| `Z` | traza una Z en el aire con el índice |
-| `Ñ` | la N con un movimiento ondulado encima |
-| `RR` | vibración / repetición de la R |
-| `LL` | la L con desplazamiento lateral |
+| `main` | Rama estable. Todo lo integrado y funcionando. |
+| `feature/vision-clasica` | Filtros, histogramas, umbralización, morfología, segmentación y caracterización clásica. |
+| `feature/calibracion` | Modelo de cámara, calibración con tablero, desdistorsión. |
+| `feature/ui-taller` | Interfaz interactiva con un modo por tema. |
+| `feature/dataset-herramientas` | Captura, entrenamiento, recuperación de muestras. |
 
-Reconocerlas pide un modelo secuencial (LSTM/GRU o DTW) sobre una ventana de
-fotogramas, no sobre uno solo. Es la extensión natural del proyecto.
+---
 
-Otras limitaciones honestas: **una sola mano** a la vez (`num_hands=1`), y el
-modelo se entrena con *tus* manos y *tu* cámara, así que otra persona tendrá
-bastante menos acierto. Es lo esperable con un dataset propio; para mejorarlo
-habría que grabar a varias personas.
+## Instalación
+
+```bash
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe descargar_modelo.py
+```
+
+El último paso descarga `hand_landmarker.task` (7,8 MB) desde el repositorio
+oficial de Google. No se incluye en el repositorio.
+
+---
+
+## Uso
+
+### Taller interactivo — un modo por tema
+
+```bash
+.venv\Scripts\python.exe taller.py
+```
+
+| Tecla | Modo |
+|---|---|
+| `1` | Modelo de cámara y calibración |
+| `2` | Filtrado |
+| `3` | Histogramas |
+| `4` | Umbralización y binarización |
+| `5` | Morfología matemática |
+| `6` | Segmentación |
+| `7` | Caracterización |
+| `8` | Comparación: clásica frente a MediaPipe |
+
+Los deslizadores de la ventana «Controles» cambian según el modo. `G` guarda
+una captura de la vista actual, `ESC` sale.
+
+**Para calibrar:** abre `datos/patron_ajedrez.png` (se genera solo al primer
+arranque), imprímelo o muéstralo en el móvil, enséñaselo a la cámara en
+ángulos distintos y pulsa `C` cada vez que lo detecte. Con 8 o más vistas,
+pulsa `K`.
+
+### Reconocimiento de señas
+
+```bash
+.venv\Scripts\python.exe capturar.py      # grabar el dataset
+.venv\Scripts\python.exe entrenar.py      # entrenar y evaluar
+.venv\Scripts\python.exe interpretar.py   # reconocimiento en vivo
+```
+
+En `capturar.py`: las letras `A-Z` seleccionan, `ENTER` graba una ráfaga,
+`0` es la clase «nada», `ESPACIO` el separador, `RETROCESO` deshace y `ESC`
+guarda y sale.
+
+---
+
+## Metodología de evaluación
+
+`entrenar.py` parte el conjunto **por ráfaga**, no por fotograma, usando
+`StratifiedGroupKFold`.
+
+Esto importa: los 60 fotogramas de una misma ráfaga son casi idénticos. Si se
+repartieran al azar entre entrenamiento y prueba, el modelo se examinaría de
+fotogramas gemelos de los que ya vio y la precisión saldría inflada por encima
+del 95 % sin significar nada. Partir por ráfaga obliga a generalizar a una
+toma distinta, que es la condición real de uso.
+
+La cifra que reporta el programa es, por tanto, más baja y más honesta que la
+que daría una partición ingenua.
+
+Se generan además la matriz de confusión y un listado de las confusiones más
+frecuentes, que es lo que guía dónde grabar más datos.
+
+---
+
+## Limitaciones conocidas
+
+- **La segmentación por color captura cualquier cosa con tono de piel**: la
+  cara del usuario, paredes beige, muebles de madera. Por eso el modo de
+  segmentación incorpora una región de interés y un rango ajustable en vivo.
+  Esta fragilidad es precisamente lo que motiva la comparación con MediaPipe.
+- **Las letras J, Z y Ñ no se reconocen.** Llevan movimiento, y un
+  clasificador que observa un fotograma aislado no puede recuperar una
+  trayectoria. Requeriría un modelo secuencial.
+- **La iluminación a contraluz degrada el resultado.** Los dedos
+  sobreexpuestos se pierden en la segmentación.
 
 ---
 
 ## Sobre el dataset de este repositorio
 
 `datos/muestras.csv` contiene las muestras grabadas por el autor: para cada
-fotograma, el vector de 78 caracteristicas ya normalizado. Son coordenadas de
-puntos de la mano, no imagenes.
+fotograma, el vector de 78 características ya normalizado. Son coordenadas de
+puntos de la mano, no imágenes.
 
-Los fotogramas originales **no se incluyen**: son grabaciones de la camara del
+Los fotogramas originales **no se incluyen**: son grabaciones de la cámara del
 autor y no hacen falta para reproducir el proyecto. `capturar.py` los guarda en
-`datos/imagenes/` en tu propia maquina, y `.gitignore` los deja fuera del
-repositorio. Si quieres tu propio dataset, grabalo con `capturar.py`.
+`datos/imagenes/` en tu propia máquina, y `.gitignore` los deja fuera.
+
+---
 
 ## Dos trampas de MediaPipe en Windows
 
 Ambas están resueltas en el código, pero conviene conocerlas: cuestan una tarde
 cada una y los mensajes de error no apuntan a la causa.
 
-**1. La `ñ` de la ruta rompe la carga del modelo.** La carpeta de este proyecto
-se llama `LenguajeDeseñas`. Pasarle a MediaPipe la ruta con `model_asset_path`
-falla con `FileNotFoundError` *aunque el archivo exista y Python lo vea*: la capa
-nativa en C++ no decodifica bien los caracteres no ASCII y recibe
-`LenguajeDese?as`. La solución es leer el archivo desde Python y pasar los bytes
-con `model_asset_buffer`, de modo que la librería nativa nunca vea la ruta.
+**1. Las rutas con caracteres no ASCII rompen la carga del modelo.** La carpeta
+de este proyecto contiene una `ñ`. Pasar la ruta con `model_asset_path` falla
+con `FileNotFoundError` *aunque el archivo exista y Python lo vea*: la capa
+nativa en C++ no decodifica bien los caracteres no ASCII. La solución es leer
+el archivo desde Python y pasar los bytes con `model_asset_buffer`.
 
-**2. Los timestamps tienen que ser estrictamente crecientes.** En modo `VIDEO`,
-si un fotograma llega con una marca de tiempo menor o igual que la anterior,
-MediaPipe lanza `ValueError` y tira el programa. Usar `time.time() * 1000` es
-una bomba de relojería: dos fotogramas procesados dentro del mismo milisegundo
-dan la misma marca, y además `time.time()` puede retroceder si el reloj del
-sistema se ajusta. `DetectorManos` lleva su propio reloj monótono y fuerza el
-avance, así que quien lo usa no tiene que preocuparse.
+El mismo problema afecta a `cv2.imwrite` y `cv2.imread`, que fallan en
+silencio devolviendo `False` o `None`. Por eso el proyecto usa `cv2.imencode` /
+`cv2.imdecode` con lectura y escritura desde Python.
+
+**2. Los timestamps deben ser estrictamente crecientes.** En modo `VIDEO`, si
+un fotograma llega con una marca de tiempo menor o igual que la anterior,
+MediaPipe lanza `ValueError`. Usar `time.time() * 1000` es una bomba de
+relojería: dos fotogramas procesados dentro del mismo milisegundo dan la misma
+marca. `DetectorManos` lleva su propio reloj monótono.
+
+---
 
 ## Archivos
 
-| | |
+| Ruta | Descripción |
 |---|---|
-| `senas/manos.py` | detección y extracción de características |
-| `senas/alfabeto.py` | qué letras se reconocen y cuáles no, con el porqué |
-| `descargar_modelo.py` | baja el modelo de landmarks (una vez) |
-| `capturar.py` | graba el dataset con la webcam |
-| `entrenar.py` | entrena y evalúa el clasificador |
-| `interpretar.py` | intérprete en vivo |
-| `probar_caracteristicas.py` | comprueba que las invariancias se cumplen |
+| `taller.py` | Interfaz interactiva con un modo por tema del curso |
+| `senas/clasico.py` | Tubería de visión clásica completa |
+| `senas/calibracion.py` | Modelo de cámara y calibración |
+| `senas/manos.py` | Detección con MediaPipe y extracción de características |
+| `senas/alfabeto.py` | Definición del alfabeto LSC |
+| `capturar.py` | Captura del dataset con la webcam |
+| `entrenar.py` | Entrenamiento y evaluación |
+| `interpretar.py` | Reconocimiento en vivo |
+| `descargar_modelo.py` | Descarga del modelo de MediaPipe |
+| `probar_caracteristicas.py` | Pruebas de las invariancias |
+| `recuperar_desde_imagenes.py` | Reconstrucción del CSV desde los fotogramas |
 
-## Requisitos
+---
 
-Python 3.14 · MediaPipe 1.0.1 · OpenCV 5 · scikit-learn 1.9 (ver `requirements.txt`)
+## Referencias
+
+- INSOR — Instituto Nacional para Sordos. [Alfabeto LSC](https://educativo.insor.gov.co/catdiccionario/alfabeto/)
+- INSOR e Instituto Caro y Cuervo. [Diccionario Básico de la Lengua de Señas Colombiana](https://www.colombiaaprende.edu.co/sites/default/files/files_public/2022-04/Diccionario-lengua-de-senas.pdf), 2006.
+- Google. [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)
