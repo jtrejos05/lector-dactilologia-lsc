@@ -122,6 +122,12 @@ def calibrar(lista_esquinas: list, forma_img: tuple) -> dict:
 
 
 def guardar(datos: dict, ruta: str = RUTA_CALIBRACION) -> None:
+    """Escribe los parametros de calibracion como JSON.
+
+    Se guardan en disco porque la calibracion es propia de cada camara y no
+    cambia entre ejecuciones: basta hacerla una vez. El archivo queda fuera del
+    repositorio por el mismo motivo, ya que los valores de una camara no sirven
+    para otra."""
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     with open(ruta, "w", encoding="utf-8") as f:
         json.dump(datos, f, indent=2)

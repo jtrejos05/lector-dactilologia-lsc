@@ -23,6 +23,11 @@ def mano_de_prueba(semilla=0):
 
 
 def comprobar(nombre, a, b, tolerancia=1e-9):
+    """Compara dos vectores e informa si difieren menos que la tolerancia.
+
+    La tolerancia por defecto es 1e-9 porque lo que se comprueba son
+    invariancias EXACTAS, no aproximadas: tras normalizar, trasladar o escalar
+    la mano no debe cambiar el vector mas alla del error de coma flotante."""
     dif = float(np.abs(a - b).max())
     ok = dif < tolerancia
     print("  [%s] %-42s  dif max = %.2e" % ("OK" if ok else "FALLA", nombre, dif))
@@ -30,6 +35,19 @@ def comprobar(nombre, a, b, tolerancia=1e-9):
 
 
 def main():
+    """Verifica que el vector de caracteristicas es realmente invariante.
+
+    Genera una mano sintetica y le aplica las transformaciones que el vector
+    debe ignorar: trasladarla por el encuadre, acercarla o alejarla de la
+    camara, y reflejarla para convertir una mano derecha en izquierda. En los
+    tres casos el vector tiene que salir identico.
+
+    Comprueba ademas lo contrario, que es igual de importante: que mover un
+    dedo SI cambia el vector. Un vector invariante a todo seria invariante
+    tambien a la sena, y no serviria para nada.
+
+    Estas pruebas son la evidencia de que el modelo aprende la forma de la mano
+    y no su posicion en la imagen."""
     base = mano_de_prueba()
     v0 = extraer_caracteristicas(base, ASPECTO, False)
 

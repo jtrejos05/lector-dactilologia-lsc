@@ -22,6 +22,11 @@ DESTINO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 
 def progreso(bloques, tam_bloque, total):
+    """Dibuja la barra de progreso de la descarga, reescribiendo la linea.
+
+    Es el callback que urlretrieve llama periodicamente. El retorno de carro
+    sin salto de linea hace que la barra se repinte en el sitio en vez de
+    llenar la consola de lineas."""
     if total <= 0:
         return
     hechos = min(bloques * tam_bloque, total)
@@ -33,6 +38,14 @@ def progreso(bloques, tam_bloque, total):
 
 
 def main():
+    """Descarga hand_landmarker.task desde el repositorio oficial de Google.
+
+    El modelo no se guarda en el repositorio: son 7,8 MB que no tiene sentido
+    versionar, y es un artefacto de terceros que conviene traer de su origen.
+
+    El archivo .task es un paquete con dos redes encadenadas: un detector de
+    palma, que localiza donde hay una mano en el fotograma, y un modelo de
+    landmarks que sobre ese recorte devuelve los 21 puntos 3D."""
     os.makedirs(os.path.dirname(DESTINO), exist_ok=True)
 
     if os.path.exists(DESTINO):

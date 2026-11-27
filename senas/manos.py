@@ -49,6 +49,7 @@ class Deteccion:
 
     @property
     def hay_mano(self) -> bool:
+        """True si MediaPipe encontro una mano en el fotograma."""
         return self.puntos is not None
 
 
@@ -120,6 +121,18 @@ class DetectorManos:
     def __init__(self, ruta_modelo: str = RUTA_MODELO, en_vivo: bool = True,
                  confianza_deteccion: float = 0.5,
                  confianza_seguimiento: float = 0.5):
+        """Construye el detector de MediaPipe a partir del modelo descargado.
+
+    El modelo se carga en memoria y se pasan los BYTES, no la ruta. Motivo: la
+    capa nativa de MediaPipe (C++) no decodifica bien las rutas con caracteres
+    no ASCII en Windows, y la carpeta original de este proyecto lleva enye;
+    falla con FileNotFoundError aunque el archivo exista y Python lo vea. Con
+    model_asset_buffer la ruta la resuelve Python, que si maneja Unicode.
+
+    En modo en_vivo se usa VIDEO, que mantiene seguimiento entre fotogramas:
+    una vez encontrada la mano no vuelve a ejecutar el detector de palma en
+    cada imagen, lo que lo hace bastante mas rapido y mas estable. Para
+    fotogramas sueltos se usa IMAGE."""
         if not os.path.exists(ruta_modelo):
             raise FileNotFoundError(
                 "No encuentro el modelo de landmarks en:\n  " + ruta_modelo +
@@ -168,12 +181,18 @@ class DetectorManos:
         return marca_ms
 
     def __enter__(self) -> "DetectorManos":
+        """Permite usar el detector con "with", para que siempre se cierre."""
         return self
 
     def __exit__(self, *_) -> None:
+        """Cierra el detector al salir del bloque "with", incluso si hubo error."""
         self.cerrar()
 
     def cerrar(self) -> None:
+        """Libera el detector de MediaPipe.
+
+    Conviene llamarlo explicitamente: mantiene recursos nativos que no se
+    liberan solos cuando el recolector de basura descarta el objeto."""
         self._detector.close()
 
     def procesar(self, frame_bgr: np.ndarray,

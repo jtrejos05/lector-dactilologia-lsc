@@ -77,6 +77,13 @@ def cargar_muestras() -> list:
 
 
 def guardar_muestras(filas: list) -> None:
+    """Escribe el dataset completo al CSV.
+
+    La columna "rafaga" identifica la toma de la que sale cada muestra, y no
+    es decorativa: los 60 fotogramas de una rafaga son casi identicos, asi que
+    si al partir entrenamiento y prueba se repartieran a ambos lados, el modelo
+    se examinaria de fotogramas gemelos de los que ya vio y la precision
+    saldria inflada. entrenar.py parte POR RAFAGA apoyandose en esta columna."""
     os.makedirs(os.path.dirname(RUTA_CSV), exist_ok=True)
     # La columna "rafaga" identifica la toma de la que sale cada muestra. Es
     # imprescindible para evaluar bien: los 60 fotogramas de una rafaga son casi
@@ -149,6 +156,22 @@ def panel_recuento(filas: list) -> None:
 
 
 def main() -> int:
+    """Bucle de captura: camara, maquina de estados y teclado.
+
+    La grabacion es una maquina de tres estados. En "espera" se elige la letra;
+    al pulsar ENTER se pasa a "cuenta_atras", que da dos segundos para colocar
+    la mano; y luego a "grabando", que acumula 60 fotogramas en un buffer y, al
+    llenarlo, los vuelca al CSV como una rafaga nueva.
+
+    Se graba por rafagas y no muestra a muestra por dos motivos: permite variar
+    las condiciones entre tomas (distancia, angulo, luz), que es de donde sale
+    la variedad que el modelo necesita; y da la unidad de agrupacion con la que
+    luego se evalua honestamente.
+
+    Las letras NUNCA son comandos. Los comandos van en teclas que no son
+    letras, porque antes estaban en G/U/D/Q y tapaban a esas cuatro: pulsar D
+    para elegir la letra D ejecutaba el borrado y se llevaba por delante las
+    muestras de la letra activa."""
     filas = cargar_muestras()
     if filas:
         print("Dataset existente: %d muestras. Se van a ampliar." % len(filas))

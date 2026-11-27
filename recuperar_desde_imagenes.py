@@ -31,6 +31,17 @@ def leer_imagen(ruta: str):
 
 
 def main(etiquetas: list) -> int:
+    """Reconstruye las filas del CSV a partir de los fotogramas guardados.
+
+    Util cuando las muestras de una letra se pierden del CSV pero sus imagenes
+    siguen en disco. El identificador de rafaga se recupera del nombre del
+    archivo, asi que la particion por rafagas de entrenar.py sigue siendo
+    valida tras la recuperacion.
+
+    Se procesa en modo IMAGE y no VIDEO: son fotogramas sueltos, sin
+    continuidad temporal. Eso hace que MediaPipe sea mas estricto, porque no
+    puede apoyarse en el seguimiento entre fotogramas, y es normal perder
+    algunas imagenes en las que no detecta la mano."""
     import capturar
 
     filas = capturar.cargar_muestras()

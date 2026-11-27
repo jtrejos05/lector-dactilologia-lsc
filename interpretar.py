@@ -56,6 +56,7 @@ GRIS = (150, 150, 150)
 
 
 def texto(frame, txt, org, escala=0.6, color=BLANCO, grosor=2):
+    """Dibuja texto con contorno negro para que se lea sobre cualquier fondo."""
     cv2.putText(frame, txt, (org[0] + 1, org[1] + 1), cv2.FONT_HERSHEY_SIMPLEX,
                 escala, (0, 0, 0), grosor + 2, cv2.LINE_AA)
     cv2.putText(frame, txt, org, cv2.FONT_HERSHEY_SIMPLEX,
@@ -69,6 +70,14 @@ class Estabilizador:
     """
 
     def __init__(self, etiquetas):
+        """Prepara el historial y el estado de las tres capas antirruido.
+
+    historial      ventana de probabilidades para el suavizado (capa 1)
+    candidato      letra que se esta manteniendo ahora mismo
+    seguidos       cuantos fotogramas lleva estable (capa 2)
+    armado         si se puede volver a escribir; se desarma al escribir y se
+                   rearma al soltar la sena (capa 3)
+    ultima_escrita para distinguir repetir letra de cambiar de letra"""
         self.etiquetas = list(etiquetas)
         self.historial = deque(maxlen=VENTANA)
         self.candidato = None
@@ -142,6 +151,16 @@ def dibujar_barras(frame, media, etiquetas, x, y):
 
 
 def main() -> int:
+    """Bucle del interprete: reconoce senas y va componiendo el texto.
+
+    Carga el clasificador entrenado, lee la camara, extrae el vector de
+    caracteristicas de cada fotograma y se lo pasa al Estabilizador, que decide
+    cuando una letra esta lo bastante confirmada como para escribirse.
+
+    Sin ese estabilizador el sistema seria inservible: a 30 fotogramas por
+    segundo el modelo emitiria 30 letras por segundo, y durante el movimiento
+    entre dos senas la mano pasa por poses intermedias que se parecen a otras
+    letras."""
     from joblib import load
 
     if not os.path.exists(RUTA_MODELO):

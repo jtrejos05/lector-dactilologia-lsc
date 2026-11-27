@@ -84,6 +84,17 @@ def revisar_dataset(y, g) -> None:
 
 
 def main() -> int:
+    """Entrena el clasificador y lo evalua sin enganarse.
+
+    El orden importa. Primero se evalua con validacion cruzada agrupando por
+    rafaga, que es lo que da la cifra que se reporta; y solo despues se
+    reentrena con el dataset completo para guardar el modelo que se usara en
+    produccion. Al reves, la evaluacion estaria midiendo un modelo que ya vio
+    los datos de prueba.
+
+    Imprime ademas el informe por clase y las confusiones mas frecuentes
+    ordenadas, que es lo que indica donde grabar mas rafagas y que pares de
+    senas son realmente parecidos."""
     from joblib import dump
     from sklearn.metrics import classification_report, confusion_matrix
     from sklearn.model_selection import StratifiedGroupKFold
@@ -116,6 +127,15 @@ def main() -> int:
         # rangos distintos, y una red sin escalar se sesga hacia las de mayor
         # magnitud. El MLP es pequeno a proposito: con unos miles de muestras,
         # una red mas grande se aprende el ruido de tu webcam.
+        """Crea la tuberia de clasificacion: escalado y despues el MLP.
+
+    El StandardScaler va primero porque las componentes del vector viven en
+    rangos distintos (coordenadas normalizadas frente a distancias entre
+    puntos), y una red sin escalar se sesga hacia las de mayor magnitud.
+
+    Se crea una tuberia nueva en cada particion de la validacion cruzada, y no
+    una compartida: reutilizarla haria que el escalado se ajustara con datos de
+    prueba, que es otra forma sutil de fuga de informacion."""
         return make_pipeline(
             StandardScaler(),
             MLPClassifier(hidden_layer_sizes=(128, 64), activation="relu",
