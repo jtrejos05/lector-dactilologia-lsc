@@ -77,6 +77,12 @@ DESLIZADORES = {
 
 
 def texto(img, txt, org, escala=0.55, color=BLANCO, grosor=1):
+    """Dibuja texto con contorno negro para que se lea sobre cualquier fondo.
+
+    Se pinta dos veces: primero en negro con mayor grosor, y encima el
+    color real. Es el truco habitual para rotular video, donde el fondo
+    cambia en cada fotograma y un texto de un solo color acaba siendo
+    ilegible sobre las zonas claras o las oscuras."""
     cv2.putText(img, txt, (org[0] + 1, org[1] + 1), cv2.FONT_HERSHEY_SIMPLEX,
                 escala, (0, 0, 0), grosor + 2, cv2.LINE_AA)
     cv2.putText(img, txt, org, cv2.FONT_HERSHEY_SIMPLEX, escala, color,
@@ -84,14 +90,22 @@ def texto(img, txt, org, escala=0.55, color=BLANCO, grosor=1):
 
 
 def a_color(img):
-    """Lleva una imagen de un canal a tres, para poder apilarla con las demas."""
+    """Lleva una imagen de un canal a tres, para poder apilarla con las demas.
+
+    Las mascaras binarias y las imagenes en escala de grises tienen un
+    solo canal, mientras que los fotogramas de la camara tienen tres.
+    numpy.hstack y numpy.vstack exigen que coincidan, asi que todo pasa
+    por aqui antes de componer la rejilla."""
     if img.ndim == 2:
         return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     return img
 
 
 def rotular(img, titulo, color=AMARILLO):
-    """Pone una banda con el nombre del panel."""
+    """Pone una banda oscura con el nombre del panel en su borde superior.
+
+    Cada panel de la interfaz muestra una etapa distinta de la tuberia;
+    sin rotulo no hay forma de saber cual es cual."""
     img = a_color(img).copy()
     cv2.rectangle(img, (0, 0), (img.shape[1], 26), (28, 28, 28), -1)
     texto(img, titulo, (8, 18), 0.5, color)
@@ -99,7 +113,14 @@ def rotular(img, titulo, color=AMARILLO):
 
 
 def rejilla(paneles, cols=2, ancho_celda=480):
-    """Compone varios paneles en una cuadricula del mismo tamano."""
+    """Compone varios paneles en una cuadricula uniforme.
+
+    Escala cada panel al mismo ancho conservando su relacion de aspecto,
+    rellena por abajo los que queden mas bajos para que todas las celdas
+    midan igual, y apila por filas. Sin igualar las alturas, hstack falla.
+
+    Es lo que permite ver varias etapas del procesamiento a la vez, que es
+    la idea central de la interfaz: comparar, no mirar una sola salida."""
     celdas = []
     for p in paneles:
         p = a_color(p)
@@ -121,7 +142,12 @@ def rejilla(paneles, cols=2, ancho_celda=480):
 
 
 def crear_controles(modo):
-    """Rehace la ventana de deslizadores al cambiar de modo."""
+    """Rehace la ventana de deslizadores al cambiar de modo.
+
+    OpenCV no sabe eliminar un deslizador una vez creado: solo permite
+    destruir la ventana entera. Por eso cada cambio de modo destruye la
+    ventana de controles y la vuelve a crear con los deslizadores que ese
+    modo necesita, definidos en el diccionario DESLIZADORES."""
     try:
         cv2.destroyWindow(CONTROLES)
     except cv2.error:
@@ -136,6 +162,12 @@ def crear_controles(modo):
 
 
 def leer(nombre, por_defecto):
+    """Lee un deslizador, devolviendo un valor por defecto si no existe.
+
+    Los modos sin deslizadores no crean la ventana de controles, y
+    getTrackbarPos lanza cv2.error si se le pregunta por una ventana que
+    no esta. Capturarlo aqui permite que las funciones de modo pidan
+    cualquier parametro sin comprobar antes si existe."""
     try:
         return cv2.getTrackbarPos(nombre, CONTROLES)
     except cv2.error:
@@ -143,6 +175,12 @@ def leer(nombre, por_defecto):
 
 
 def guardar_png(img, nombre):
+    """Escribe una captura de la vista actual en la carpeta de salidas.
+
+    No se usa cv2.imwrite: igual que la capa nativa de MediaPipe, no sabe
+    manejar rutas con caracteres no ASCII en Windows, y la carpeta original
+    del proyecto lleva enye. Se codifica en memoria con imencode y se
+    escribe el archivo desde Python, que si maneja Unicode."""
     os.makedirs(DIR_SALIDAS, exist_ok=True)
     ruta = os.path.join(DIR_SALIDAS, nombre)
     ok, buf = cv2.imencode(".png", img)
@@ -158,7 +196,23 @@ def guardar_png(img, nombre):
 # ============================================================================
 
 def modo_calibracion(frame, est):
-    """Captura vistas del tablero, calibra y muestra el efecto."""
+    """TEMA: MODELOS DE CAMARA Y CALIBRACION.
+
+    Busca el patron de ajedrez en cada fotograma y, con las vistas que el
+    usuario va capturando, estima los parametros de la camara.
+
+    El modelo estenopeico describe la proyeccion de un punto 3D al sensor:
+
+        s * [u v 1]^T = K * [R|t] * [X Y Z 1]^T
+
+    K es la matriz intrinseca (focales fx, fy y centro optico cx, cy) y
+    [R|t] la pose del tablero. Como el tablero es plano y conocemos la
+    separacion real entre esquinas, varias vistas bastan para despejar K
+    y los coeficientes de distorsion de la lente.
+
+    El panel muestra, cuando ya hay calibracion: la imagen corregida, el
+    mapa de desplazamiento que introduce la distorsion, y los parametros
+    con su error de reproyeccion, que es la medida de calidad."""
     gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     vista = frame.copy()
 
@@ -224,6 +278,19 @@ def modo_calibracion(frame, est):
 
 
 def modo_filtro(frame, est):
+    """TEMA: FILTRADO.
+
+    Aplica gaussiano, mediana y bilateral al mismo fotograma y los muestra
+    en paralelo con su tiempo de ejecucion, para que la comparacion sea
+    directa y no de memoria.
+
+    Los tres suavizan, pero de forma distinta: el gaussiano promedia con
+    pesos segun la distancia y difumina tambien los bordes; la mediana
+    toma el valor central de la vecindad, que elimina el ruido impulsivo
+    respetando los bordes; el bilateral promedia solo entre pixeles de
+    intensidad parecida, asi que alisa superficies y conserva los bordes,
+    a cambio de ser bastante mas caro. Los milisegundos en pantalla lo
+    hacen evidente al subir el tamano del nucleo."""
     k = max(1, leer("nucleo", 5))
     paneles = [rotular(frame, "original")]
     for nombre in ["gaussiano", "mediana", "bilateral"]:
@@ -236,6 +303,20 @@ def modo_filtro(frame, est):
 
 
 def modo_histograma(frame, est):
+    """TEMA: HISTOGRAMAS.
+
+    Muestra la imagen en gris junto a su ecualizacion global y su CLAHE,
+    cada una con su histograma superpuesto y su media y desviacion.
+
+    El histograma es la distribucion de intensidades. Ecualizar la
+    redistribuye para ocupar todo el rango y ganar contraste: la global
+    usa la funcion de distribucion acumulada de la imagen entera, y CLAHE
+    lo hace por regiones con un limite de amplificacion, lo que evita que
+    el ruido de las zonas planas se dispare.
+
+    Importa en este proyecto porque los fotogramas grabados a contraluz
+    tienen el histograma apelotonado en la zona baja, que es justo donde
+    la umbralizacion posterior no encuentra un corte limpio."""
     gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     glob = clasico.ecualizar(gris, "global")
     clahe = clasico.ecualizar(gris, "clahe")
@@ -271,6 +352,21 @@ def modo_histograma(frame, est):
 
 
 def modo_umbral(frame, est):
+    """TEMA: UMBRALIZACION Y BINARIZACION.
+
+    Compara umbral manual, Otsu y adaptativo gaussiano sobre el mismo
+    fotograma, mas la mascara de piel por rango de color, y dibuja el
+    histograma con el corte que Otsu ha elegido marcado en rojo.
+
+    Un umbral global parte la imagen en dos con un unico valor. Otsu
+    calcula ese valor automaticamente buscando el que minimiza la varianza
+    dentro de cada clase, lo que equivale a separar las dos modas del
+    histograma: funciona bien solo si la imagen es realmente bimodal. Los
+    adaptativos calculan un umbral distinto por region, que es lo que
+    salva las escenas con iluminacion desigual.
+
+    La mascara de piel usa inRange, que es umbralizacion por rango en tres
+    canales a la vez en lugar de un corte sobre un solo canal."""
     valor = leer("umbral manual", 127)
     bloque = max(3, leer("bloque", 31))
     c = leer("C", 5)
@@ -296,6 +392,24 @@ def modo_umbral(frame, est):
 
 
 def modo_morfologia(frame, est):
+    """TEMA: MORFOLOGIA MATEMATICA.
+
+    Aplica erosion, dilatacion, apertura y cierre a la mascara de piel,
+    con el elemento estructurante visualizado y el porcentaje de area que
+    sobrevive a cada operacion.
+
+    La morfologia opera sobre imagenes binarias haciendo recorrer una
+    forma pequena, el elemento estructurante, por toda la imagen:
+
+      erosion     un pixel sobrevive solo si el nucleo cabe entero dentro
+                  del objeto; adelgaza y borra las motas sueltas
+      dilatacion  la operacion contraria; engorda y tapa los huecos
+      apertura    erosion y luego dilatacion: quita ruido SIN encoger
+      cierre      dilatacion y luego erosion: rellena SIN engordar
+
+    Apertura y cierre son las que de verdad limpian la mascara de la mano:
+    la primera mata las motas del fondo y la segunda rellena los huecos
+    que la segmentacion deja entre los dedos."""
     k = max(1, leer("nucleo", 5))
     it = max(1, leer("iteraciones", 1))
 
@@ -341,6 +455,11 @@ def recorte_roi(frame):
 
 
 def aplicar_roi(mascara, frame, activo):
+    """Pone a cero todo lo que quede fuera de la region de interes.
+
+    Se aplica sobre la mascara y no sobre el fotograma a proposito: asi la
+    segmentacion solo compite dentro del recuadro, pero la imagen que se
+    muestra sigue siendo la completa y se ve el contexto que se descarta."""
     if not activo:
         return mascara
     x0, y0, x1, y1 = recorte_roi(frame)
@@ -350,12 +469,33 @@ def aplicar_roi(mascara, frame, activo):
 
 
 def rango_de_deslizadores():
+    """Lee de los deslizadores el rango de piel en YCrCb.
+
+    El rango de piel no es una constante universal: depende del tono de
+    piel, de la camara y de la iluminacion. Dejarlo fijo en el codigo
+    serviria para una escena y fallaria en la siguiente, asi que se expone
+    en la interfaz para ajustarlo en vivo mirando la mascara."""
     return {"cr_min": leer("Cr min", 133), "cr_max": leer("Cr max", 173),
             "cb_min": leer("Cb min", 77), "cb_max": leer("Cb max", 127),
             "y_min": leer("Y min", 40)}
 
 
 def modo_segmentacion(frame, est):
+    """TEMA: SEGMENTACION.
+
+    Recorre la cadena completa que aisla la mano y muestra las seis etapas
+    a la vez: original, mascara de piel, mascara limpiada con morfologia,
+    contornos encontrados, region mayor y mano recortada.
+
+    Se segmenta en YCrCb y no en BGR porque ese espacio separa la
+    crominancia de la luminancia, de modo que el rango de piel aguanta
+    mejor los cambios de iluminacion. En BGR la misma piel bajo otra luz
+    cae en otra zona del cubo de color y el rango deja de servir.
+
+    La heuristica final es quedarse con la componente conexa mayor. Falla
+    en cuanto la cara ocupa mas que la mano, y por eso existe la region de
+    interes: es una limitacion real del enfoque clasico, declarada en vez
+    de escondida."""
     k = max(1, leer("nucleo morf", 7))
     area_min = leer("area minima x100", 15) * 100
     usar_roi = leer("solo region (ROI)", 1) == 1
@@ -397,6 +537,22 @@ def modo_segmentacion(frame, est):
 
 
 def modo_caracterizacion(frame, est):
+    """TEMA: CARACTERIZACION.
+
+    Extrae del contorno segmentado un vector de 14 descriptores y los
+    muestra en una tabla junto al contorno, su envolvente convexa y los
+    valles detectados entre dedos.
+
+    Los descriptores son adimensionales o estan normalizados por el tamano
+    de la imagen, y los momentos de Hu son ademas invariantes a rotacion.
+    Esa invariancia es el requisito clave: si una caracteristica dependiera
+    de donde esta la mano en el encuadre, el modelo aprenderia el encuadre
+    en lugar de la forma de la sena.
+
+    El conteo de dedos sale de los defectos de convexidad: la envolvente
+    convexa salta por encima de los valles entre dedos, y filtrando esos
+    valles por su angulo se separan los que de verdad dividen dos dedos de
+    las simples irregularidades del contorno."""
     k = max(1, leer("nucleo morf", 7))
     cfg = {"filtro": "gaussiano", "k_filtro": 5, "umbral": "otsu",
            "morfologia": "apertura", "k_morf": k}
@@ -432,6 +588,20 @@ def modo_caracterizacion(frame, est):
 
 
 def modo_comparacion(frame, est):
+    """Enfrenta la tuberia clasica con MediaPipe sobre el mismo fotograma.
+
+    Es el resultado central del proyecto. Las dos vias resuelven la misma
+    tarea y se miden en el mismo fotograma, con sus tiempos en pantalla.
+
+    La clasica segmenta por COLOR: toma cualquier cosa con tono de piel,
+    incluidas la cara del usuario y los muebles de madera, y depende de la
+    iluminacion y del fondo. MediaPipe detecta la ESTRUCTURA de la mano
+    con dos redes encadenadas, asi que ignora la cara y aguanta los
+    cambios de luz.
+
+    El contraste no es un fallo del proyecto: es su conclusion, y muestra
+    con datos propios por que el campo paso de segmentar pixeles a usar
+    landmarks aprendidos."""
     k = max(1, leer("nucleo morf", 7))
 
     t0 = time.time()
@@ -491,6 +661,21 @@ DESPACHO = {
 
 
 def main() -> int:
+    """Bucle principal: captura, despacha al modo activo y atiende el teclado.
+
+    El estado vive en el diccionario est, que viaja a cada funcion de modo:
+    las vistas del tablero capturadas, los parametros de calibracion y el
+    detector de MediaPipe. Se pasa asi, y no en variables globales, para
+    que cada modo sea una funcion pura de (fotograma, estado) -> imagen y
+    se pueda probar sin camara.
+
+    El despacho va por el diccionario DESPACHO, envuelto en try/except: si
+    un modo falla, se dibuja el error en pantalla en lugar de tumbar la
+    aplicacion entera, que en mitad de una demostracion importa.
+
+    Teclas: 1-8 cambian de modo, G guarda una captura, ESC sale. En el
+    modo de calibracion, ademas, C captura una vista del tablero, K lanza
+    el calibrado y R descarta las vistas acumuladas."""
     patron = os.path.join(RAIZ, "datos", "patron_ajedrez.png")
     if not os.path.exists(patron):
         cal.generar_tablero(patron)
