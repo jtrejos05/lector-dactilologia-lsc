@@ -92,6 +92,23 @@ def main() -> int:
     from sklearn.preprocessing import StandardScaler
 
     X, y, g = cargar()
+
+    # --excluir CLASE [CLASE ...]  deja clases fuera del entrenamiento.
+    #
+    # Sirve para cuantificar cuanto cuesta una clase problematica: entrenar con
+    # y sin ella y comparar. En este proyecto _ESPACIO_ es el caso claro, porque
+    # el gesto que se eligio como separador (mano abierta) coincide con la seña
+    # de la B, asi que las dos clases son indistinguibles por construccion.
+    if "--excluir" in sys.argv:
+        fuera = [a.upper() for a in sys.argv[sys.argv.index("--excluir") + 1:]
+                 if not a.startswith("-")]
+        if fuera:
+            mantener = ~np.isin(y, fuera)
+            quitadas = len(y) - int(mantener.sum())
+            X, y, g = X[mantener], y[mantener], g[mantener]
+            print("Excluidas %d muestras de: %s" % (quitadas, ", ".join(fuera)))
+            print()
+
     revisar_dataset(y, g)
 
     def construir():

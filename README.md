@@ -182,6 +182,30 @@ pulsa `K`.
 .venv\Scripts\python.exe interpretar.py   # reconocimiento en vivo
 ```
 
+#### Dejar clases fuera del entrenamiento
+
+```bash
+.venv\Scripts\python.exe entrenar.py --excluir _ESPACIO_
+```
+
+Sirve para cuantificar cuánto cuesta una clase problemática: se entrena con y
+sin ella y se comparan las cifras. El resultado en este proyecto:
+
+| Configuración | Clases | Precisión |
+|---|---|---|
+| Todas las clases | 17 | 83,9 % (± 0,2) |
+| **Sin `_ESPACIO_`** | 16 | **90,6 % (± 3,7)** |
+| Sin `_ESPACIO_`, A ni B | 14 | 97,7 % (± 1,2) |
+| Sin `_ESPACIO_`, A, B, C ni E | 12 | 95,8 % (± 0,1) |
+
+`_ESPACIO_` costaba 7 puntos: el gesto elegido como separador —mano abierta al
+frente— coincide con la seña de la B, así que las dos clases son
+indistinguibles por construcción. Es un error de diseño, no del modelo.
+
+Obsérvese que la última fila **baja**: quitar más clases no mejora el número.
+Son `_ESPACIO_`, A y B concretamente las defectuosas; C y E ya iban bien una
+vez eliminada la primera.
+
 En `capturar.py`: las letras `A-Z` seleccionan, `ENTER` graba una ráfaga,
 `0` es la clase «nada», `ESPACIO` el separador, `RETROCESO` deshace y `ESC`
 guarda y sale.
