@@ -19,3 +19,6 @@ salidas/
 modelo/*.task
 # lo genera entrenar.py
 modelo/*.joblib
+
+# calibracion propia de cada camara
+datos/calibracion.json
